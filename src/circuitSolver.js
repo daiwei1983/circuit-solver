@@ -7,6 +7,7 @@
 		this.nodeMap = {};				// a map of nodes: {"n1": [comp1, comp2], "n2": [comp2, comp3] ...}
 		this.nodes = [];					// an array of all nodes
 		this.voltageSources = [];
+		this.operationalAmplifiers = [];     //add this field to consider newly added operational amplifiers
 		this.AMatrix = [];
 		this.ZMatrix = [];
 		this.referenceNode = null;
@@ -50,7 +51,7 @@
 		this.value = value;
 		this.nodes = nodes;
 	};
-
+	
 	var twoPi = 2*Math.PI;
 
 	Component.prototype.getImpedance = function(frequency) {
@@ -80,6 +81,13 @@
 		this.positiveNode = positiveNode;
 		this.negativeNode = negativeNode;
 		this.frequency = frequency || 0;
+	};
+	
+	var OperationalAmplifier = function(id, positiveNode, negativeNode, outputNode){
+		this.id = id;
+		this.positiveNode = positiveNode;
+		this.negativeNode = negativeNode;
+		this.outputNode = outputNode;
 	};
 
 	CiSo.prototype.addComponent = function (id,type,value,nodeLabels) {
@@ -118,6 +126,28 @@
 			this.setReferenceNode(negativeNode);
 		}
 	};
+	
+	//add a new operational amplifier
+	CiSo.prototype.addOperationalAmplifier = function(id, positiveNode, negativeNode, outputNode) {
+		var amplifier = new OperationalAmplifier(id, positiveNode, negativeNode, outputNode);
+		this.operationalAmplifiers.push(amplifier);
+		
+		if(!this.nodeMap[positiveNode]) {
+			this.nodeMap[positiveNode] = [];
+			this.nodes.push(positiveNode);
+		}
+		
+		if(!this.nodeMap[negativeNode]) {
+			this.nodeMap[negativeNode] = [];
+			this.nodes.push(negativeNode);
+		}
+		
+		if(!this.nodeMap[outputNode]) {
+			this.nodeMap[outputNode] = [];
+			this.nodes.push(outputNode);
+		}
+		
+	};
 
 	CiSo.prototype.setReferenceNode = function(node) {
 		this.referenceNode = node;
@@ -134,8 +164,11 @@
 		var cZero = $Comp(0,0),
 				numNodes = this.nodes.length,
 				numSources = this.voltageSources.length,
-				arraySize = numNodes - 1 + numSources,
+				numAmplifiers = this.operationalAmplifiers.length,
+				arraySize = numNodes - 1 + numSources + numAmplifiers,
 				i, j;
+
+		this.AMatrix = [];
 
 		for (i = 0; i < arraySize; i++) {
 			this.AMatrix [i] = [];
@@ -169,12 +202,13 @@
 	};
 
 	CiSo.prototype.addBCMatrix = function (){
-		if (this.voltageSources.length === 0) return;
+		if (this.voltageSources.length === 0 && this.operationalAmplifiers.length === 0) return;
 
 		var one = $Comp(1,0),
 				neg = one.negative(),
 				sources = this.voltageSources,
-				source, posNode, negNode, nodeIndex, i;
+				amplifiers = this.operationalAmplifiers,
+				source, posNode, negNode, outNode, nodeIndex, i;
 
 		for (i = 0; i < sources.length; i++) {
 			source = sources[i];
@@ -191,25 +225,54 @@
 				this.AMatrix[nodeIndex][this.nodes.length - 1 + i] = neg.copy();
 			}
 		}
+		
+		//add all the operational amplifiers into the AMatrix
+		for (i = sources.length; i < sources.length + amplifiers.length; i++) {
+			amplifier = amplifiers[i-sources.length];
+			posNode = amplifier.positiveNode;
+			if(posNode !== this.referenceNode) {
+				
+				nodeIndex = this.getNodeIndex(posNode);
+				
+				this.AMatrix[this.nodes.length - 1 + i][nodeIndex] = one.copy();
+			}
+			negNode = amplifier.negativeNode;
+			if (negNode !== this.referenceNode) {
+				nodeIndex = this.getNodeIndex(negNode);
+				this.AMatrix[this.nodes.length - 1 + i][nodeIndex] = neg.copy();
+			}
+			outNode = amplifier.outputNode;
+			if(outNode !== this.referenceNode) {
+				nodeIndex = this.getNodeIndex(outNode);
+				this.AMatrix[nodeIndex][this.nodes.length - 1 + i] = one.copy();
+			}
+		}
 	};
 
 	CiSo.prototype.createZMatrix = function () {
 		var cZero = $Comp(0,0),
 				numNodes = this.nodes.length,
 				numSources = this.voltageSources.length,
-				arraySize = numNodes - 1 + numSources,
+				numAmplifiers = this.operationalAmplifiers.length,
+				arraySize = numNodes - 1 + numSources + numAmplifiers,
 				sources = this.voltageSources,
+				amplifiers = this.operationalAmplifiers,
 				i;
 
-		this.ZMatrix[0] = []
+		this.ZMatrix = [ [] ];
 
 		for (i=0; i<arraySize; i++) {
-			this.ZMatrix[0][i] = cZero.copy()
+			this.ZMatrix[0][i] = cZero.copy();
 		}
 
 		for (i = 0; i < sources.length; i++) {
 			this.ZMatrix[0][numNodes - 1 + i].real = sources[i].voltage;
 		}
+		
+		//add all the operational amplifiers into the ZMatrix
+		//for (i = numSources; i < numSources + amplifiers.length; i++) {
+		//	this.ZMatrix[0][numNodes - 1 + i] = cZero.copy();
+		//}
 	};
 
 	/**
@@ -345,32 +408,90 @@
 		if (node === this.referenceNode) {
 			return $Comp(0);
 		}
-		var res = this.solve();
-		return res.elements[0][this.getNodeIndex(node)];
+		try {
+			var res = this.solve();
+			return res.elements[0][this.getNodeIndex(node)];
+		} catch (e) {
+			return $Comp(0);
+		}
 	};
 
 	CiSo.prototype.getVoltageBetween = function(node1, node2) {
 		return this.getVoltageAt(node1).subtract(this.getVoltageAt(node2));
 	};
-
+	
 	CiSo.prototype.getCurrent = function(voltageSource) {
-		var sources = this.voltageSources,
-				res     = this.solve(),
+		var res,
+				sources,
 				sourceIndex = null,
 				i, ii;
 
+		try {
+			res = this.solve();
+		} catch (e) {
+			return $Comp(0);
+		}
+
+		sources = this.voltageSources;
+
 		for (i = 0, ii = sources.length; i < ii; i++) {
-			if (sources[i].label == voltageSource) {
+			if (sources[i].id == voltageSource) {
 				sourceIndex = i;
 				break;
 			}
 		}
 
 		if (sourceIndex === null) {
-			throw Error("No voltage source "+voltageSource);
+			try {
+				throw Error("No voltage source "+voltageSource);
+			} catch (e) {
+				return $Comp(0);
+			}
 		}
 
-		return res.elements[0][this.nodes.length - 1 - i];
+		try {
+			return res.elements[0][this.nodes.length - 1 + sourceIndex];
+		} catch (e) {
+			return $Comp(0);
+		}
+	}
+	
+	//get the output current associated with each operational Amplifier
+	CiSo.prototype.getOperationalAmplifierCurrent = function(operationalAmplifier) {
+		var res,
+				amplifiers,
+				amplifierIndex = null,
+				i, ii;
+
+		try {
+			res = this.solve();
+		} catch (e) {
+			return $Comp(0);
+		}
+
+		amplifiers = this.operationalAmplifiers;
+
+		for (i = this.voltageSources.length, ii = this.voltageSources.length + amplifiers.length; i < ii; i++) {
+			if (amplifiers[i-this.voltageSources.length].id == operationalAmplifier) {
+				amplifierIndex = i-this.voltageSources.length;
+				break;
+			}
+		}
+
+		if (amplifierIndex === null) {
+			try {
+				throw Error("No operational amplifier "+operationalAmplifier);
+			} catch (e) {
+				return $Comp(0);
+			}
+		}
+
+		try {
+			return res.elements[0][this.nodes.length - 1 + this.voltageSources.length + amplifierIndex];
+		} catch (e) {
+			return $Comp(0);
+		}
+	
 	}
 
 	window.CiSo = CiSo;

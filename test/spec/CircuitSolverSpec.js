@@ -91,6 +91,17 @@ describe("CircuitSolver", function() {
 			expect(ciso.referenceNodeIndex).toBe(1);
 		});
 	});
+	
+	describe("Adding operational amplifiers", function() {
+		it("We can add an operational amplifier", function() {
+			var ciso = new CiSo();
+			ciso.addOperationalAmplifier("OA","n1","n2","n4");
+			expect(ciso.operationalAmplifiers.length).toBe(1);
+			expect(ciso.operationalAmplifiers[0].positiveNode).toBe("n1");
+			expect(ciso.operationalAmplifiers[0].negativeNode).toBe("n2");
+			expect(ciso.operationalAmplifiers[0].outputNode).toBe("n4");
+		});
+	});
 
 	describe("Node lists", function() {
 
@@ -382,6 +393,32 @@ describe("CircuitSolver", function() {
 			expect( ciso.getVoltageAt("n3").real ).toBeAbout(5.538);
 			expect( ciso.getVoltageAt("n4").real ).toBeAbout(4.615);
 		});
+		
+		
+		/**
+			V1  ──R1──┬───R2────┬
+					  │			│	
+					  └─│─_     │
+						│OA1|───┘
+					  ┬─│─
+			Gnd ──────┘ 					  
+		**/
+		it("We can solve a simple circuit with an operational amplifier", function() {
+			var ciso = new CiSo();
+			// add nodes in arbitrary order
+			ciso.addComponent("R1", "Resistor", 1000, ["n2", "n3"]);
+			ciso.addComponent("R2", "Resistor", 2000, ["n3", "n4"]);
+			ciso.addComponent("R3", "Resistor", 2000, ["n1", "n4"]);
+			ciso.addVoltageSource("DCV1",12,"n2","n1");
+			ciso.addOperationalAmplifier("OA1","n3","n1","n4");
+			
+			expect( ciso.getVoltageAt("n1").real ).toBeAbout(0);
+			expect( ciso.getCurrent("DCV1").real ).toBeAbout(-0.012);
+			expect( ciso.getOperationalAmplifierCurrent("OA1").real ).toBeAbout(0.012);
+			expect( ciso.getVoltageAt("n2").real ).toBeAbout(12);
+			expect( ciso.getVoltageAt("n3").real ).toBeAbout(0);
+		});
+		
 
 		/**
 				┌──────R4──────┐
@@ -446,6 +483,17 @@ describe("CircuitSolver", function() {
 			ciso.setReferenceNode("n2");
 
 			expect(ciso.getCurrent("ohmmeterBattery").magnitude).toBeAbout(0.001);
+
+		});
+
+		it("We should get 0V for a bad circuit", function() {
+			var ciso = new CiSo();
+			ciso.addVoltageSource("DCV1",12,"n1","n2");
+			ciso.addComponent("R1", "Resistor", 1000, ["n2", "n3"]);
+
+			expect(ciso.getVoltageAt("n1").magnitude).toBe(0);
+			expect(ciso.getVoltageAt("n2").magnitude).toBe(0);
+			expect(ciso.getVoltageAt("n3").magnitude).toBe(0);
 
 		});
 	});
