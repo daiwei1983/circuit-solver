@@ -256,7 +256,6 @@
 				numAmplifiers = this.operationalAmplifiers.length,
 				arraySize = numNodes - 1 + numSources + numAmplifiers,
 				sources = this.voltageSources,
-				amplifiers = this.operationalAmplifiers,
 				i;
 
 		this.ZMatrix = [ [] ];
@@ -269,10 +268,6 @@
 			this.ZMatrix[0][numNodes - 1 + i].real = sources[i].voltage;
 		}
 		
-		//add all the operational amplifiers into the ZMatrix
-		//for (i = numSources; i < numSources + amplifiers.length; i++) {
-		//	this.ZMatrix[0][numNodes - 1 + i] = cZero.copy();
-		//}
 	};
 
 	/**
