@@ -137,8 +137,6 @@
 				arraySize = numNodes - 1 + numSources,
 				i, j;
 
-		this.AMatrix = [];
-
 		for (i = 0; i < arraySize; i++) {
 			this.AMatrix [i] = [];
 			for (j = 0; j < arraySize; j++) {
@@ -203,7 +201,7 @@
 				sources = this.voltageSources,
 				i;
 
-		this.ZMatrix = [ [] ];
+		this.ZMatrix[0] = []
 
 		for (i=0; i<arraySize; i++) {
 			this.ZMatrix[0][i] = cZero.copy()
@@ -347,12 +345,8 @@
 		if (node === this.referenceNode) {
 			return $Comp(0);
 		}
-		try {
-			var res = this.solve();
-			return res.elements[0][this.getNodeIndex(node)];
-		} catch (e) {
-			return $Comp(0);
-		}
+		var res = this.solve();
+		return res.elements[0][this.getNodeIndex(node)];
 	};
 
 	CiSo.prototype.getVoltageBetween = function(node1, node2) {
@@ -360,39 +354,23 @@
 	};
 
 	CiSo.prototype.getCurrent = function(voltageSource) {
-		var res,
-				sources,
+		var sources = this.voltageSources,
+				res     = this.solve(),
 				sourceIndex = null,
 				i, ii;
 
-		try {
-			res = this.solve();
-		} catch (e) {
-			return $Comp(0);
-		}
-
-		sources = this.voltageSources
-
 		for (i = 0, ii = sources.length; i < ii; i++) {
-			if (sources[i].id == voltageSource) {
+			if (sources[i].label == voltageSource) {
 				sourceIndex = i;
 				break;
 			}
 		}
 
 		if (sourceIndex === null) {
-			try {
-				throw Error("No voltage source "+voltageSource);
-			} catch (e) {
-				return $Comp(0);
-			}
+			throw Error("No voltage source "+voltageSource);
 		}
 
-		try {
-			return res.elements[0][this.nodes.length - 1 + sourceIndex];
-		} catch (e) {
-			return $Comp(0);
-		}
+		return res.elements[0][this.nodes.length - 1 - i];
 	}
 
 	window.CiSo = CiSo;
